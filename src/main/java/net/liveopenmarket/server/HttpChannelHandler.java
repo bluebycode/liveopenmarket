@@ -13,9 +13,21 @@ import io.netty.handler.codec.http.HttpVersion;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import com.google.inject.assistedinject.Assisted;
+import com.google.inject.assistedinject.AssistedInject;
+
+
 public class HttpChannelHandler extends SimpleChannelInboundHandler<HttpRequest>{
 
 	private static final Logger logger = LoggerFactory.getLogger(HttpChannelHandler.class);
+	
+	final TestService service;
+	
+	@AssistedInject
+	public HttpChannelHandler(@Assisted TestService service){
+		super();
+		this.service = service;
+	}
 	
 	@Override
     public void channelReadComplete(ChannelHandlerContext ctx) {
@@ -23,10 +35,23 @@ public class HttpChannelHandler extends SimpleChannelInboundHandler<HttpRequest>
         ctx.flush();
     }
 	
+	
+	public static class TestService {
+		String test;
+		public TestService(String test){
+			this.test = test;
+		}
+		public String test(){
+			return this.test;
+		}
+	}
+	
 	@Override
 	protected void messageReceived(final ChannelHandlerContext ctx, final HttpRequest request) throws Exception {
 		
 		logger.info("message received {}", request.toString());
+		
+		logger.info("service: " + ((service!=null)?service.test():"null"));
 		
 		if (HttpHeaders.is100ContinueExpected(request)){
 			ctx.write(new DefaultFullHttpResponse(HttpVersion.HTTP_1_1, HttpResponseStatus.CONTINUE));

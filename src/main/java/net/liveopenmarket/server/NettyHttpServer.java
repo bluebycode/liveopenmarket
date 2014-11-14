@@ -19,6 +19,10 @@ import java.net.InetSocketAddress;
 import java.util.concurrent.ThreadFactory;
 
 import javax.inject.Inject;
+import javax.inject.Singleton;
+
+import net.liveopenmarket.bootstrapper.LiveServerBootstrapper.ChannelHandlerFactory;
+import net.liveopenmarket.server.HttpChannelHandler.TestService;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -33,11 +37,13 @@ public class NettyHttpServer extends AbstractIdleService {
 	private EventLoopGroup acceptors, workers;
 	private final ServerBootstrap server;
 	private final Provider<ServerConfiguration> configuration;
+	private final HttpChannelApplicationContext ctx;
 
 	@Inject
-	public NettyHttpServer(final Provider<ServerConfiguration> configuration) {
+	public NettyHttpServer(final Provider<ServerConfiguration> configuration, HttpChannelApplicationContext ctx) {
 		this.server = new ServerBootstrap();
 		this.configuration = configuration;
+		this.ctx = ctx;
 	}
 
 	ThreadFactory getAcceptorsFactory() {
@@ -47,7 +53,31 @@ public class NettyHttpServer extends AbstractIdleService {
 	ThreadFactory getWorkersFactory() {
 		return new DefaultThreadFactory("worker");
 	}
-
+	
+	@Singleton
+	public static class OnContextChannelInitializer extends ChannelInitializer<SocketChannel> {
+		
+		@Inject
+		private TestService service;
+		
+		@Inject
+		private ChannelHandlerFactory channelHandlerFactory;
+		
+		public OnContextChannelInitializer(){
+			logger.info("initializer"+this);
+		}
+		
+		@Override
+		protected void initChannel(final SocketChannel channel) throws Exception {						
+			final ChannelPipeline pipeline = channel.pipeline();
+			pipeline.addLast("decoder", new HttpRequestDecoder());
+			pipeline.addLast("aggregator", new HttpObjectAggregator(65536));
+			pipeline.addLast("encoder", new HttpResponseEncoder());
+			pipeline.addLast("chunkedWriter", new ChunkedWriteHandler());
+			pipeline.addLast("handler", channelHandlerFactory.createHttpHandler(service));
+		}
+	}
+	
 	@Override
 	protected void startUp() throws Exception {
 		logger.info("Starting server...");
@@ -57,22 +87,22 @@ public class NettyHttpServer extends AbstractIdleService {
 
 		ChannelFuture serverChannel = null;
 		try {
-			
 			server.group(acceptors, workers)
 					.channel(NioServerSocketChannel.class)
-					.childHandler(new ChannelInitializer<SocketChannel>() {
-						@Override
-						protected void initChannel(final SocketChannel channel) throws Exception {						
-							final ChannelPipeline pipeline = channel.pipeline();
-							pipeline.addLast("decoder", new HttpRequestDecoder());
-							pipeline.addLast("aggregator", new HttpObjectAggregator(65536));
-							pipeline.addLast("encoder", new HttpResponseEncoder());
-							// enable compression?
-							// pipeline.addLast("deflated", new HttpContentCompressor(0.9));
-							pipeline.addLast("chunkedWriter", new ChunkedWriteHandler());
-							pipeline.addLast("handler", new HttpChannelHandler());
-						}
-					})
+					.childHandler(ctx.getChannelInitializer())
+//					.childHandler(new ChannelInitializer<SocketChannel>() {
+//						@Override
+//						protected void initChannel(final SocketChannel channel) throws Exception {						
+//							final ChannelPipeline pipeline = channel.pipeline();
+//							pipeline.addLast("decoder", new HttpRequestDecoder());
+//							pipeline.addLast("aggregator", new HttpObjectAggregator(65536));
+//							pipeline.addLast("encoder", new HttpResponseEncoder());
+//							// enable compression?
+//							// pipeline.addLast("deflated", new HttpContentCompressor(0.9));
+//							pipeline.addLast("chunkedWriter", new ChunkedWriteHandler());
+//							pipeline.addLast("handler", new HttpChannelHandler());
+//						}
+//					})
 					.childOption(ChannelOption.TCP_NODELAY,true)
 					.childOption(ChannelOption.SO_KEEPALIVE,true);
 			
